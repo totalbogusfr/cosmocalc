@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "fastapi": "^0.0.8",
     "react": "^19.0.0",
     "uv": "^1.4.0"
   }
