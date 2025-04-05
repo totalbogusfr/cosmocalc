@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react" // Added useCallback
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -56,6 +56,7 @@ import { Badge } from "@/components/ui/badge"
 import { Slider } from "@/components/ui/slider"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useTheme } from "next-themes"
+import { getItemFromLocalStorage, setItemInLocalStorage } from "@/lib/utils" // Import LS utils
 import SymbolPalette from "./symbol-palette"
 import MathQuillEditor from "./mathquill-editor"
 import FormulaVisualizer from "./formula-visualizer"
@@ -74,7 +75,22 @@ const KaTeX = dynamic(() => import("./katex-renderer"), {
   ),
 })
 
-// Sample formulas for the library
+// Define interfaces for persisted data
+interface Formula {
+  id: number;
+  name: string;
+  latex: string;
+  category: string;
+  favorite: boolean;
+}
+
+interface HistoryItem {
+  id: number;
+  latex: string;
+  timestamp: string;
+}
+
+// Default formulas if nothing in local storage
 const sampleFormulas = [
   {
     id: 1,
@@ -137,7 +153,7 @@ const sampleFormulas = [
   },
 ]
 
-// Sample formula history
+// Default history if nothing in local storage
 const sampleHistory = [
   { id: 1, latex: "\\int_{a}^{b} f(x) \\, dx = F(b) - F(a)", timestamp: "2 minutes ago" },
   { id: 2, latex: "\\sum_{i=0}^{n} i = \\frac{n(n+1)}{2}", timestamp: "10 minutes ago" },
@@ -156,8 +172,13 @@ export default function FormulaEditor() {
   const [fontSize, setFontSize] = useState(18)
   const [autoRender, setAutoRender] = useState(true)
   const [showGrid, setShowGrid] = useState(true)
-  const [formulas, setFormulas] = useState(sampleFormulas)
-  const [history, setHistory] = useState(sampleHistory)
+  // Initialize state from Local Storage or use defaults
+  const [formulas, setFormulas] = useState<Formula[]>(() =>
+    getItemFromLocalStorage<Formula[]>("formulaLibrary", sampleFormulas)
+  );
+  const [history, setHistory] = useState<HistoryItem[]>(() =>
+    getItemFromLocalStorage<HistoryItem[]>("formulaHistory", sampleHistory)
+  );
   const [searchQuery, setSearchQuery] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [showAiSuggestions, setShowAiSuggestions] = useState(false)
@@ -191,21 +212,48 @@ export default function FormulaEditor() {
     }
   }, [showAiSuggestions])
 
-  // Add to history when latex changes
-  useEffect(() => {
-    const addToHistory = () => {
-      const newHistoryItem = {
-        id: Date.now(),
-        latex,
-        timestamp: "Just now",
-      }
-      setHistory((prev) => [newHistoryItem, ...prev.slice(0, 19)])
-    }
+  // --- Persistence Logic ---
 
-    // Debounce to avoid too many history entries
-    const timer = setTimeout(addToHistory, 2000)
-    return () => clearTimeout(timer)
-  }, [latex])
+  // Save formulas to Local Storage when they change
+  useEffect(() => {
+    setItemInLocalStorage<Formula[]>("formulaLibrary", formulas);
+  }, [formulas]);
+
+  // Save history to Local Storage when it changes
+  useEffect(() => {
+    setItemInLocalStorage<HistoryItem[]>("formulaHistory", history);
+  }, [history]);
+
+
+  // Debounced function to add to history
+  const debouncedAddToHistory = useCallback((currentLatex: string) => {
+     if (!currentLatex.trim()) return; // Don't save empty history
+     const newHistoryItem: HistoryItem = {
+       id: Date.now(),
+       latex: currentLatex,
+       timestamp: new Date().toLocaleString(), // Use actual timestamp
+     };
+     // Avoid adding duplicates immediately
+     setHistory((prev) => {
+        if (prev.length > 0 && prev[0].latex === newHistoryItem.latex) {
+            return prev;
+        }
+        return [newHistoryItem, ...prev.slice(0, 19)]; // Keep history size limited
+     });
+  }, []); // Empty dependency array means this function is created once
+
+  // Effect to trigger debounced history save
+   useEffect(() => {
+     const handler = setTimeout(() => {
+       debouncedAddToHistory(latex);
+     }, 2000); // Debounce time
+
+     return () => {
+       clearTimeout(handler);
+     };
+   }, [latex, debouncedAddToHistory]);
+
+  // --- End Persistence Logic ---
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(latex)
@@ -214,31 +262,55 @@ export default function FormulaEditor() {
   }
 
   const downloadFormula = () => {
-    // In a real implementation, this would convert the rendered formula to the selected format
-    alert(`In a production app, this would download the formula as ${exportFormat.toUpperCase()}`)
-  }
+    const filename = `${formulaName.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'formula'}.${exportFormat}`;
+
+    if (exportFormat === 'latex') {
+      const blob = new Blob([latex], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } else {
+      // Placeholder for other formats (PNG, SVG, MathML)
+      // These require more complex rendering/conversion logic
+      alert(`Download for ${exportFormat.toUpperCase()} format is not yet implemented.`);
+    }
+  };
 
   const saveFormula = () => {
-    const newFormula = {
+    if (!formulaName.trim() || !latex.trim()) {
+        alert("Please enter a name and formula content before saving.");
+        return;
+    }
+    const newFormula: Formula = { // Use interface
       id: Date.now(),
       name: formulaName,
       latex,
-      category: "Custom",
+      category: "Custom", // Default category for saved formulas
       favorite: false,
-    }
-    setFormulas((prev) => [newFormula, ...prev])
-    alert(`Formula "${formulaName}" saved to library!`)
-  }
+    };
+    setFormulas((prev) => [newFormula, ...prev]);
+    alert(`Formula "${formulaName}" saved to library!`);
+    setIsEditing(false); // Exit editing mode after saving
+  };
 
   const toggleFavorite = (id: number) => {
     setFormulas((prev) =>
-      prev.map((formula) => (formula.id === id ? { ...formula, favorite: !formula.favorite } : formula)),
-    )
-  }
+      prev.map((formula) =>
+        formula.id === id ? { ...formula, favorite: !formula.favorite } : formula
+      )
+    );
+  };
 
   const deleteFormula = (id: number) => {
-    setFormulas((prev) => prev.filter((formula) => formula.id !== id))
-  }
+    if (window.confirm("Are you sure you want to delete this formula?")) {
+        setFormulas((prev) => prev.filter((formula) => formula.id !== id));
+    }
+  };
 
   const filteredFormulas = formulas.filter((formula) => {
     const matchesSearch =
@@ -251,7 +323,7 @@ export default function FormulaEditor() {
     return matchesSearch && matchesCategory
   })
 
-  const categories = ["all", "favorites", ...Array.from(new Set(formulas.map((f) => f.category)))]
+  const categories = ["all", "favorites", ...Array.from(new Set(formulas.map((f: Formula) => f.category)))] // Add type
 
   const handleLatexChange = (newLatex: string) => {
     setLatex(newLatex)
@@ -297,24 +369,7 @@ export default function FormulaEditor() {
             </div>
 
             <div className="flex items-center gap-1">
-              <TooltipProvider delayDuration={300}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-purple-200 hover:text-white hover:bg-purple-800"
-                      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                    >
-                      {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Toggle theme</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-
+              {/* Removed redundant theme toggle button - handled globally now */}
               <TooltipProvider delayDuration={300}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -550,16 +605,20 @@ export default function FormulaEditor() {
 
                   <div className="flex flex-wrap gap-1 mb-3">
                     {categories.map((category) => (
-                      <Badge
+                      // Wrap Badge in a button for click handling and key prop
+                      <button
                         key={category}
-                        variant={activeCategory === category ? "default" : "outline"}
-                        className={`cursor-pointer capitalize ${
-                          activeCategory === category ? "bg-purple-600 hover:bg-purple-700" : "hover:bg-purple-500/20"
-                        }`}
                         onClick={() => setActiveCategory(category)}
+                        className={`focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ring rounded-full capitalize ${activeCategory === category ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
                       >
-                        {category === "favorites" ? "★ Favorites" : category}
-                      </Badge>
+                        <Badge
+                          variant={activeCategory === category ? "default" : "outline"}
+                          // Removed cursor-pointer from Badge, handled by button
+                          className={`${activeCategory === category ? "bg-purple-600 hover:bg-purple-700" : "hover:bg-purple-500/20"}`}
+                        >
+                          {category === "favorites" ? "★ Favorites" : category}
+                        </Badge>
+                      </button>
                     ))}
                   </div>
                 </div>
