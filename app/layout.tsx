@@ -1,11 +1,42 @@
+'use client'
+
 import type React from "react"
 import "@/app/globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/sonner"
+import { registerServiceWorker } from "./sw"
+
+// Register service worker
+if (typeof window !== 'undefined') {
+  registerServiceWorker()
+}
 
 export const metadata = {
   title: "Quantum Formula - Advanced Mathematical Formula Editor",
   description: "Next-generation mathematical formula editor with advanced visualization and AI-powered features",
-    generator: 'v0.dev'
+  generator: "v0.dev",
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+  },
+  manifest: "/manifest.json",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#000000" },
+  ],
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Quantum Formula",
+  },
+  openGraph: {
+    type: "website",
+    title: "Quantum Formula",
+    description: "Advanced Mathematical Formula Editor",
+    siteName: "Quantum Formula",
+  },
 }
 
 export default function RootLayout({
@@ -14,24 +45,33 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className="h-full overflow-hidden">
       <head>
+        <link rel="icon" href="/favicon.ico" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
           rel="stylesheet"
           href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
           integrity="sha384-GvrOXuhMATgEsSwCs4smul74iXGOixntILdUW9XmUC6+HX0sLNAK3q71HotJqlAn"
           crossOrigin="anonymous"
         />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
-      <body className="dark">
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+      <body className="dark h-full overflow-hidden">
+        <ThemeProvider 
+          attribute="class" 
+          defaultTheme="dark" 
+          enableSystem 
+          disableTransitionOnChange
+          themes={["light", "dark", "theme-blue", "theme-green", "theme-purple"]}
+          forcedTheme={undefined}
+        >
           {children}
+          <Toaster position="bottom-right" />
         </ThemeProvider>
       </body>
     </html>
   )
 }
-
-
-
-import './globals.css'
